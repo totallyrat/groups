@@ -25,13 +25,12 @@ cannot change it later, and Always Free capacity is per-region.
 | Image | **Canonical Ubuntu 24.04** | best-trodden Docker path |
 | Shape | **VM.Standard.A1.Flex** (Ampere, Arm) | the free Arm pool: 4 OCPU / 24 GB |
 | OCPUs / memory | **2 OCPU, 12 GB** | plenty; leaves room for a second box |
-
-If the Arm pool will not give you a machine, take
-**VM.Standard.E2.1.Micro** instead — it also runs this perfectly well, with a
-few adjustments. Skip to [Running on the E2.1.Micro](#running-on-the-e21micro)
-after step 4.
 | Boot volume | **200 GB** | your whole free storage allowance, in one disk |
 | SSH keys | save the private key | it is the only way in |
+
+If the Arm pool will not give you a machine, take **VM.Standard.E2.1.Micro**
+instead — it runs this perfectly well with a few adjustments, and there is a
+[section for it below](#running-on-the-e21micro).
 
 Two things worth knowing before you click Create:
 
