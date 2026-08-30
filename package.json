@@ -1,0 +1,21 @@
+{
+  "name": "groups",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Groups \u2014 a tiny app for your friendgroup. Hangouts + Daily Memories.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings server/server.mjs",
+    "dev": "node --no-warnings --watch server/server.mjs",
+    "prestart": "node scripts/make-icons.mjs",
+    "predev": "node scripts/make-icons.mjs",
+    "icons": "node scripts/make-icons.mjs --force",
+    "keys": "node scripts/vapid-keys.mjs",
+    "test": "node --no-warnings scripts/smoke-test.mjs",
+    "test:reel": "node --no-warnings scripts/reel-test.mjs",
+    "test:visual": "node --no-warnings scripts/visual-check.mjs"
+  }
+}

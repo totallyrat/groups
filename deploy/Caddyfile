@@ -1,0 +1,18 @@
+# Point your domain's A record here, then `docker compose up -d`.
+# Caddy fetches and renews the TLS certificate on its own.
+{$GROUPS_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# Clip uploads can be a few hundred megabytes on a slow phone connection.
+	request_body {
+		max_size 256MB
+	}
+
+	reverse_proxy groups:8080 {
+		flush_interval -1          # don't buffer the live event stream
+		transport http {
+			read_timeout 15m       # a 3-minute clip over bad wifi
+			write_timeout 15m
+		}
+	}
+}

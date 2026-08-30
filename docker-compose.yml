@@ -1,0 +1,32 @@
+services:
+  groups:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Generate with: npm run keys
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:you@example.com}
+    volumes:
+      - groups-data:/data
+    ports:
+      - "8080:8080"
+
+  # TLS is not optional: the camera, geolocation, the service worker and push
+  # notifications all require a secure origin.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [groups]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  groups-data:
+  caddy-data:
+  caddy-config:
