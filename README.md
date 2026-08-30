@@ -22,7 +22,7 @@ The look and the reasoning behind it are in [DESIGN.md](DESIGN.md).
 server/     zero-dependency Node backend (HTTP, SQLite, Web Push, video)
 web/        the PWA — vanilla ES modules, no build step
 scripts/    icon generator, VAPID keys, the test suites
-deploy/     Caddy config for a plain VPS
+deploy/     Caddy config, and the Oracle Cloud walkthrough
 .github/    the workflow that publishes the app to GitHub Pages
 ```
 
@@ -122,11 +122,16 @@ fly deploy
 `/api/health`, and `auto_stop_machines = "suspend"` so an idle friendgroup costs
 close to nothing while still waking instantly.
 
+### Oracle Cloud Always Free — free, with real disk, never sleeps
+
+The pick if you want it in the cloud and genuinely free: an Arm machine with
+200 GB that does not expire and does not idle out. Step by step, including the
+two firewalls that catch everyone: **[deploy/ORACLE.md](deploy/ORACLE.md)**.
+
 ### Docker on any VPS — with TLS included
 
 ```bash
-cp .env.example .env          # then: npm run keys, paste the VAPID pair in
-export GROUPS_DOMAIN=groups.yourdomain.com
+cp .env.example .env          # set GROUPS_DOMAIN, then npm run keys for VAPID
 docker compose up -d
 ```
 

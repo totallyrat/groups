@@ -1,6 +1,6 @@
-# Point your domain's A record here, then `docker compose up -d`.
+# Point your domain's A record at this machine, then `docker compose up -d`.
 # Caddy fetches and renews the TLS certificate on its own.
-{$GROUPS_DOMAIN:localhost} {
+{$GROUPS_DOMAIN} {
 	encode zstd gzip
 
 	# Clip uploads can be a few hundred megabytes on a slow phone connection.
@@ -9,10 +9,9 @@
 	}
 
 	reverse_proxy groups:8080 {
-		flush_interval -1          # don't buffer the live event stream
-		transport http {
-			read_timeout 15m       # a 3-minute clip over bad wifi
-			write_timeout 15m
-		}
+		# Do not buffer: the live event stream has to arrive as it happens.
+		# Caddy's default upstream timeouts are unlimited, which is what a
+		# long-lived stream and a slow upload both need — so nothing else here.
+		flush_interval -1
 	}
 }

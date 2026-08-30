@@ -7,10 +7,15 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:you@example.com}
+      # Optional: restrict which sites may call the API, e.g. your Pages URL.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     volumes:
       - groups-data:/data
-    ports:
-      - "8080:8080"
+    # Reachable only from Caddy. Uncomment to poke at it from the host itself.
+    expose:
+      - "8080"
+    # ports:
+    #   - "127.0.0.1:8080:8080"
 
   # TLS is not optional: the camera, geolocation, the service worker and push
   # notifications all require a secure origin.
@@ -18,6 +23,11 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on: [groups]
+    environment:
+      # Caddy reads this inside the container to name the site and get a
+      # certificate for it. Compose refuses to start if it is unset, which
+      # beats silently serving on "localhost" and never getting a cert.
+      GROUPS_DOMAIN: ${GROUPS_DOMAIN:?set GROUPS_DOMAIN in .env, e.g. groups.example.com}
     ports:
       - "80:80"
       - "443:443"
