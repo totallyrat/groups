@@ -25,6 +25,11 @@ cannot change it later, and Always Free capacity is per-region.
 | Image | **Canonical Ubuntu 24.04** | best-trodden Docker path |
 | Shape | **VM.Standard.A1.Flex** (Ampere, Arm) | the free Arm pool: 4 OCPU / 24 GB |
 | OCPUs / memory | **2 OCPU, 12 GB** | plenty; leaves room for a second box |
+
+If the Arm pool will not give you a machine, take
+**VM.Standard.E2.1.Micro** instead — it also runs this perfectly well, with a
+few adjustments. Skip to [Running on the E2.1.Micro](#running-on-the-e21micro)
+after step 4.
 | Boot volume | **200 GB** | your whole free storage allowance, in one disk |
 | SSH keys | save the private key | it is the only way in |
 
@@ -34,8 +39,10 @@ Two things worth knowing before you click Create:
   storage total. Putting it all in the boot volume means no second disk to
   attach, partition and mount. 200 GB is years of clips for five people.
 - **`VM.Standard.E2.1.Micro` is the other free shape** — 1 GB of RAM and an
-  eighth of a core. It will technically run this, but stitching a day's reel
-  will crawl. Take the Arm one.
+  eighth of a core, x86 rather than Arm. Take the Arm one if you can get it,
+  but the Micro is a fine fallback and there is a section below for it. You
+  still get the full 200 GB of disk either way, which is the part that matters
+  most for an app full of video.
 
 **"Out of host capacity."** This is the one genuinely annoying part of Oracle
 Always Free: the Arm pool is often full. If you hit it:
@@ -178,6 +185,127 @@ ALLOWED_ORIGINS=https://YOUR_NAME.github.io
 ```
 
 ---
+
+## Running on the E2.1.Micro
+
+1 GB of RAM and an eighth of a core is genuinely small, but this app suits it:
+there are no dependencies to install, the database is a file, and uploads are
+streamed straight to disk rather than held in memory. Three adjustments make it
+comfortable.
+
+### Add swap first
+
+The Micro ships with none, and 1 GB with no swap is where things get killed at
+the worst moment.
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h                      # should now show 2.0Gi of swap
+```
+
+### Skip Docker, run it directly
+
+Docker's daemon wants a couple of hundred megabytes before your app gets any,
+and building the image on an eighth of a core takes a while. Since Groups has
+**no npm dependencies**, a plain install is both lighter and faster to update.
+
+```bash
+# Node 22 (Ubuntu's own packages are older than node:sqlite needs)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs ffmpeg git
+
+# Caddy, for TLS
+sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt-get update && sudo apt-get install -y caddy
+```
+
+Put the app in place and give it its own user:
+
+```bash
+sudo git clone https://github.com/YOUR_NAME/groups.git /opt/groups
+cd /opt/groups
+sudo node scripts/make-icons.mjs          # ~30s on this machine, once
+sudo useradd --system --home /var/lib/groups --create-home groups
+sudo chown -R groups:groups /var/lib/groups
+```
+
+Write `/etc/groups.env` — note **`REEL_MODE=copy`**, explained below:
+
+```bash
+sudo node scripts/vapid-keys.mjs | sudo tee /etc/groups.env
+echo 'REEL_MODE=copy' | sudo tee -a /etc/groups.env
+sudo chmod 600 /etc/groups.env
+```
+
+Then start it:
+
+```bash
+sudo cp deploy/groups.service /etc/systemd/system/
+sudo systemctl enable --now groups
+systemctl status groups
+```
+
+The unit caps the service at 600 MB and de-prioritises its CPU, so a runaway
+ffmpeg cannot take the machine down with it.
+
+Finally point Caddy at it — `/etc/caddy/Caddyfile`:
+
+```
+yourname.duckdns.org {
+	encode zstd gzip
+	request_body {
+		max_size 256MB
+	}
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+	}
+}
+```
+
+```bash
+sudo systemctl reload caddy
+curl https://yourname.duckdns.org/api/health
+```
+
+Updates are then `cd /opt/groups && sudo git pull && sudo systemctl restart groups`
+— a second, rather than an image rebuild.
+
+### Tell the stitcher to take it easy
+
+"Save the whole day" normally joins everyone's clips into one file. When the
+clips already match — which they do when everyone is on an iPhone — that is a
+stream copy: no re-encoding, near-instant, and fine on this machine. When they
+*don't* match, the server would otherwise re-encode everything, which on an
+eighth of a core means minutes of pegged CPU.
+
+`REEL_MODE` decides how far it will go:
+
+| Value | Behaviour |
+| --- | --- |
+| `full` | re-encode when needed (the default; right for the Arm box) |
+| `copy` | stream-copy only — **use this on the Micro** |
+| `off` | no server-side stitching at all |
+
+On `copy`, a day whose clips disagree simply falls back to saving them one at a
+time, which the app already does gracefully and which costs the server nothing.
+Nobody loses a memory; they just get several files instead of one.
+
+### What to expect
+
+Comfortable: recording, uploading, playback, hangouts, notifications, the 20:00
+drop, Memory Lane. The server is doing I/O, not computation.
+
+Slower: the first `make-icons` run, and stream-copy stitching of a long day
+(still seconds, not minutes). Uploads are limited by your friends' phones far
+more than by this machine.
 
 ## Living with it
 

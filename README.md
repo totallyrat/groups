@@ -124,9 +124,10 @@ close to nothing while still waking instantly.
 
 ### Oracle Cloud Always Free — free, with real disk, never sleeps
 
-The pick if you want it in the cloud and genuinely free: an Arm machine with
-200 GB that does not expire and does not idle out. Step by step, including the
-two firewalls that catch everyone: **[deploy/ORACLE.md](deploy/ORACLE.md)**.
+The pick if you want it in the cloud and genuinely free: a machine with 200 GB
+that does not expire and does not idle out. Step by step, including the two
+firewalls that catch everyone and a section on running comfortably on the
+1 GB E2.1.Micro: **[deploy/ORACLE.md](deploy/ORACLE.md)**.
 
 ### Docker on any VPS — with TLS included
 
@@ -188,6 +189,7 @@ Every setting is optional.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Web Push identity — `npm run keys` |
 | `VAPID_SUBJECT` | `mailto:hello@groups.app` | Contact address sent to push services |
 | `ALLOWED_ORIGINS` | any | Comma-separated web origins allowed to call the API |
+| `REEL_MODE` | `full` | `full` re-encodes mismatched clips, `copy` stream-copies only (for small machines), `off` disables stitching |
 | `INSECURE_COOKIES` | unset | Set to `1` for plain-HTTP local dev |
 | `LOG_REQUESTS` | unset | Set to `1` for a request log |
 

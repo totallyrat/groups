@@ -136,6 +136,19 @@ export async function serveFile(req, res, file, { mime, download, maxAge = 31536
 
 /* ---------------------------------------------------------------- ffmpeg -- */
 
+/**
+ * How hard the stitcher is allowed to work, for the benefit of very small
+ * machines (Oracle's free E2.1.Micro is 1 GB and an eighth of a core):
+ *
+ *   full  re-encode mismatched clips into one file      (default)
+ *   copy  only stream-copy clips that already match; a mixed day falls back
+ *         to saving clip by clip, which costs the box nothing
+ *   off   no server-side stitching at all
+ */
+const REEL_MODE = ['full', 'copy', 'off'].includes(process.env.REEL_MODE)
+  ? process.env.REEL_MODE
+  : 'full';
+
 let ffmpegChecked = null;
 let ffprobeChecked = null;
 
@@ -148,6 +161,11 @@ export function hasFfmpeg() {
   if (ffmpegChecked !== null) return ffmpegChecked;
   ffmpegChecked = probeBinary('ffmpeg').then((ok) => { ffmpegChecked = ok; return ok; });
   return ffmpegChecked;
+}
+
+/** Can this server offer "save the whole day" as one file? */
+export async function reelEnabled() {
+  return REEL_MODE !== 'off' && await hasFfmpeg();
 }
 
 function hasFfprobe() {
@@ -254,6 +272,7 @@ async function normalise(file, outFile, hasAudio, timeoutMs) {
  * re-encoded to one house format first and then copied together.
  */
 export async function stitchReel(files, outFile, { timeoutMs = 10 * 60_000, expectedSeconds = 0 } = {}) {
+  if (REEL_MODE === 'off') return { ok: false, error: 'reel_disabled' };
   if (!(await hasFfmpeg())) return { ok: false, error: 'ffmpeg_unavailable' };
   if (!files.length) return { ok: false, error: 'no_clips' };
 
@@ -276,6 +295,13 @@ export async function stitchReel(files, outFile, { timeoutMs = 10 * 60_000, expe
         return { ok: true, mode: 'copy' };
       }
       copyError = copy.stderr || 'stream copy came out short';
+    }
+
+    if (REEL_MODE === 'copy') {
+      // Re-encoding would pin a tiny machine for minutes. The app already
+      // knows how to hand over the clips one at a time instead.
+      await fsp.rm(outFile, { force: true });
+      return { ok: false, error: copyError || 'clips do not match and re-encoding is off' };
     }
 
     for (const [i, file] of files.entries()) {

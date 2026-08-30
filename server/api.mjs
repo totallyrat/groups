@@ -5,7 +5,7 @@ import {
   json, readJson, HttpError, bad, unauthorized, forbidden, notFound,
   clean, clamp,
 } from './util.mjs';
-import { serveFile, extForMime, stitchReel, hasFfmpeg, extractPoster } from './media.mjs';
+import { serveFile, extForMime, stitchReel, hasFfmpeg, reelEnabled, extractPoster } from './media.mjs';
 
 const YEAR = 365 * 24 * 3600;
 const MAX_CLIP_BYTES = 220 * 1024 * 1024; // ~3 min of iPhone 1080p
@@ -384,7 +384,7 @@ export function createApi({ db, media, pusher, bus, config, signer }) {
         members: q.memberCount.get(g.id).n,
       })),
       push: { enabled: pusher.enabled, publicKey: pusher.publicKey || null },
-      capabilities: { reelDownload: await hasFfmpeg() },
+      capabilities: { reelDownload: await reelEnabled() },
     }, extra);
   });
 
@@ -820,7 +820,7 @@ export function createApi({ db, media, pusher, bus, config, signer }) {
         reactions: byClip.get(c.id) || [],
       })),
       reel: {
-        available: await hasFfmpeg(),
+        available: await reelEnabled(),
         status: reel?.status || 'stale',
         url: reel?.status === 'ready'
           ? `/api/groups/${group.id}/memories/${day}/reel.mp4`
@@ -844,7 +844,7 @@ export function createApi({ db, media, pusher, bus, config, signer }) {
     const user = requireUser(req);
     const group = requireMember(params.gid, user.id);
     if (!isUnlocked(group, params.day)) throw forbidden('Not open yet');
-    if (!(await hasFfmpeg())) {
+    if (!(await reelEnabled())) {
       json(res, 200, { status: 'unavailable', reason: 'ffmpeg_unavailable' });
       return;
     }

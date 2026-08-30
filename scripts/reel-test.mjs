@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const run = promisify(execFile);
+const MODE = process.env.REEL_MODE || 'full';
 const PORT = 8900 + Math.floor(Math.random() * 80);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = await fs.mkdtemp(path.join(os.tmpdir(), 'groups-reel-'));
@@ -104,6 +105,15 @@ try {
   check('clips come back in shot order, not upload order',
     memory.body.clips[0].duration === 2 && memory.body.clips[1].duration === 3,
     memory.body.clips.map((c) => c.duration).join(','));
+  if (MODE === 'off') {
+    check('REEL_MODE=off advertises no server-side stitching',
+      memory.body.reel.available === false);
+    const refused = await call('POST', `/api/groups/${group.id}/memories/${day}/reel`, { token });
+    check('and refuses to build one', refused.body.status === 'unavailable', refused.body.status);
+    console.log('\n  reel stitching is off, as configured\n');
+    process.exit(failed ? 1 : 0);
+  }
+
   check('the server offers a stitched reel', memory.body.reel.available === true);
 
   let build = await call('POST', `/api/groups/${group.id}/memories/${day}/reel`, { token });
@@ -159,17 +169,24 @@ try {
     if (m.body.reel.status === 'ready') { mixedReel = m.body.reel; break; }
     if (m.body.reel.status === 'unavailable') break;
   }
-  check('the stitcher falls back to a normalising re-encode', Boolean(mixedReel));
 
-  if (mixedReel) {
-    const res = await fetch(BASE + mixedReel.url, { headers: { authorization: `Bearer ${token}` } });
-    const out = path.join(WORK, 'mixed.mp4');
-    await fs.writeFile(out, Buffer.from(await res.arrayBuffer()));
-    const total = await duration(out);
-    check('and produces all three clips', Math.abs(total - 7) < 1.5, `${total.toFixed(2)}s, expected ~7s`);
+  if (MODE === 'copy') {
+    // A small machine is told not to re-encode; the app saves clip by clip.
+    check('REEL_MODE=copy refuses to re-encode a mismatched day', mixedReel === null);
+  } else {
+    check('the stitcher falls back to a normalising re-encode', Boolean(mixedReel));
+    if (mixedReel) {
+      const res = await fetch(BASE + mixedReel.url, { headers: { authorization: `Bearer ${token}` } });
+      const out = path.join(WORK, 'mixed.mp4');
+      await fs.writeFile(out, Buffer.from(await res.arrayBuffer()));
+      const total = await duration(out);
+      check('and produces all three clips', Math.abs(total - 7) < 1.5, `${total.toFixed(2)}s, expected ~7s`);
+    }
   }
 
-  console.log(failed ? `\n  \x1b[31m${failed} failed\x1b[0m\n` : '\n  reel stitching works\n');
+  console.log(failed
+    ? `\n  \x1b[31m${failed} failed\x1b[0m\n`
+    : `\n  reel stitching works (REEL_MODE=${MODE})\n`);
 } catch (err) {
   failed++;
   console.error('\n\x1b[31mreel test blew up:\x1b[0m', err);

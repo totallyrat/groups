@@ -1,0 +1,38 @@
+# Groups as a plain systemd service — lighter than Docker on a 1 GB machine.
+#
+#   sudo cp deploy/groups.service /etc/systemd/system/
+#   sudo systemctl enable --now groups
+#
+[Unit]
+Description=Groups
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=groups
+Group=groups
+WorkingDirectory=/opt/groups
+ExecStart=/usr/bin/node --no-warnings server/server.mjs
+Restart=always
+RestartSec=3
+
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=HOST=127.0.0.1
+Environment=DATA_DIR=/var/lib/groups
+# Everything else (VAPID keys, REEL_MODE, ALLOWED_ORIGINS) goes here:
+EnvironmentFile=-/etc/groups.env
+
+# Keep one runaway ffmpeg from taking the whole machine down with it.
+MemoryMax=600M
+CPUWeight=60
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/groups
+
+[Install]
+WantedBy=multi-user.target
