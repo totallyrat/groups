@@ -47,9 +47,31 @@ jobs:
       - name: Stop Pages from running the app through Jekyll
         run: touch web/.nojekyll
 
-      - uses: actions/configure-pages@v5
+      # Tries to switch Pages on, but the Actions token is usually not allowed
+      # to create a Pages site — so this is best-effort and we explain the fix.
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
         with:
           enablement: true
+
+      - name: Explain the one click we cannot do for you
+        if: steps.pages.outcome == 'failure'
+        run: |
+          {
+            echo "## Turn Pages on once"
+            echo ""
+            echo "GitHub Actions is not allowed to enable Pages for a repository by itself."
+            echo "It is a single setting, and you only ever do it once:"
+            echo ""
+            echo "1. Open [Settings -> Pages](https://github.com/${{ github.repository }}/settings/pages)"
+            echo "2. Under **Source**, choose **GitHub Actions**"
+            echo "3. Re-run this workflow"
+            echo ""
+            echo "Then the app is live at \`https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Enable Pages first::Settings -> Pages -> Source: GitHub Actions, then re-run this workflow."
+          exit 1
 
       - uses: actions/upload-pages-artifact@v3
         with:

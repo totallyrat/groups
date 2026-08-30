@@ -78,10 +78,12 @@ permanent HTTPS link like `https://<you>.github.io/groups/` that anyone in the
 group can open in Safari and **Add to Home Screen**. Nothing to run, nothing to
 pay for, and the link never changes even if you move servers later.
 
-1. Push to your default branch (or run the workflow by hand from the Actions
-   tab). It enables Pages for the repo on the first run.
-2. The run summary prints the URL.
-3. Open it on your iPhone → Share → **Add to Home Screen**.
+1. **Settings → Pages → Source: GitHub Actions.** One click, once. (Actions is
+   not allowed to switch Pages on for a repo by itself, so this is the one bit
+   that cannot be automated — the workflow tells you so if you forget.)
+2. Push, or run **Publish app to Pages** from the Actions tab.
+3. The run summary prints the URL.
+4. Open it on your iPhone → Share → **Add to Home Screen**.
 
 Pages serves static files only, so **it cannot run the server half**. The first
 time anyone opens the link the app asks for their group's server address, then
