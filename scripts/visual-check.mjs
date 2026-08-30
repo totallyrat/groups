@@ -96,17 +96,15 @@ await shot(ada, '05-home-empty');
 
 /* ------------------------------------------------- friend 2 joins ------- */
 
+// An invite link drops you straight into the group after signing up.
 const bo = await makePage(boPhone);
 await bo.goto(`${BASE}/?join=${code}`, { waitUntil: 'domcontentloaded' });
 await bo.fill('#welcome-name', 'Bo');
 await bo.click('#welcome-go');
 await bo.waitForSelector('.phrase-box', { timeout: 8000 });
 await bo.click('.sheet .btn-primary');
-await bo.waitForSelector('#screen-setup.active', { timeout: 5000 });
-await bo.fill('#join-code', code);
-await bo.click('#group-join');
-await bo.waitForSelector('#screen-home.active', { timeout: 8000 });
-await bo.waitForTimeout(700);
+await bo.waitForSelector('#screen-home.active', { timeout: 10000 });
+await bo.waitForTimeout(900);
 await shot(bo, '06-home-joined');
 
 /* ------------------------------------------------- a hangout ------------ */

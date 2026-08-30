@@ -3,6 +3,7 @@
 import { $, el, clear, toast, fmtDay, fmtDuration, icon, ICONS } from '../ui.js';
 import { api } from '../api.js';
 import { state } from '../store.js';
+import { mediaUrl } from '../config.js';
 import { show } from '../router.js';
 import { openReel } from './reel.js';
 
@@ -42,7 +43,7 @@ function tile(day) {
   const locked = !day.unlocked;
   const node = el('button', {
     class: `mem-tile ${locked ? 'locked' : ''} ${!locked && !day.watched ? 'unwatched' : ''}`.trim(),
-    style: day.poster ? { backgroundImage: `url(${day.poster})` } : {},
+    style: day.poster ? { backgroundImage: `url(${mediaUrl(day.poster)})` } : {},
     onclick: () => {
       if (locked) {
         const hours = Math.max(1, Math.round((day.opensAt - Date.now()) / 3600_000));

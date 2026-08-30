@@ -23,6 +23,7 @@ server/     zero-dependency Node backend (HTTP, SQLite, Web Push, video)
 web/        the PWA — vanilla ES modules, no build step
 scripts/    icon generator, VAPID keys, the test suites
 deploy/     Caddy config for a plain VPS
+.github/    the workflow that publishes the app to GitHub Pages
 ```
 
 **No npm dependencies.** Not "few" — none. `node_modules` is empty on a fresh
@@ -48,21 +49,61 @@ land in `./data/`.
 
 ```bash
 npm run dev            # same, with --watch
-npm test               # 62 API + PWA checks, no browser needed
+npm test               # 79 API + PWA checks, no browser needed
 node scripts/reel-test.mjs      # exercises the ffmpeg stitcher (skips if absent)
 node scripts/visual-check.mjs   # drives the real UI in Chromium, needs Playwright
+node scripts/pages-check.mjs    # the app on one origin, the API on another
 ```
 
 ---
 
 ## Hosting it
 
-The app needs a real origin over **HTTPS**. This is not a nicety — Safari gates
+Groups is two halves, and they can live in different places:
+
+| | | |
+| --- | --- | --- |
+| **the app** | HTML, CSS, JS, icons | any static host — **GitHub Pages works** |
+| **the server** | groups, clips, hangouts, push | needs Node + a disk |
+
+Whichever you choose, it has to be **HTTPS**. That is not a nicety — Safari gates
 the camera, geolocation, service workers and push notifications behind a secure
 context, so over plain HTTP on a LAN address you get an app that cannot film,
 cannot locate you and cannot notify you.
 
-Pick whichever of these fits you.
+### GitHub Pages — the app, installable, free, forever
+
+`.github/workflows/pages.yml` publishes `web/` to Pages on every push. You get a
+permanent HTTPS link like `https://<you>.github.io/groups/` that anyone in the
+group can open in Safari and **Add to Home Screen**. Nothing to run, nothing to
+pay for, and the link never changes even if you move servers later.
+
+1. Push to your default branch (or run the workflow by hand from the Actions
+   tab). It enables Pages for the repo on the first run.
+2. The run summary prints the URL.
+3. Open it on your iPhone → Share → **Add to Home Screen**.
+
+Pages serves static files only, so **it cannot run the server half**. The first
+time anyone opens the link the app asks for their group's server address, then
+remembers it. Set a `GROUPS_API_BASE` repository variable (Settings → Secrets
+and variables → Actions → Variables) and the workflow bakes it in, so nobody is
+ever asked:
+
+```
+GROUPS_API_BASE = https://groups.yourdomain.com
+```
+
+Invite links carry the server too — `…/groups/?s=https://your-server&join=A1B2C3`
+— so a friend taps one link, signs up, and is in the group without typing an
+address at all. Settings → Invite friends generates it.
+
+Everything works across the two origins: the app authenticates with a bearer
+token, videos play from short-lived signed URLs, and the live event stream uses
+a one-off ticket. The session cookie is deliberately never sent across origins,
+which is why the server can safely accept requests from your Pages domain.
+
+> If you would rather one thing served one thing: run the server, and it serves
+> the app itself at `/`. Pages is optional.
 
 ### Fly.io — one machine, one volume, done
 
@@ -97,6 +138,16 @@ that trip up a default reverse proxy here: a 256 MB body limit (a 3-minute
 Point it at the `Dockerfile`, attach a persistent volume at `/data`, and set the
 `VAPID_*` variables. That's all the configuration there is.
 
+### Locking the server down to your Pages site
+
+By default the server answers any web origin. That is safe — cross-origin
+requests never carry the session cookie, so a hostile page gains nothing — but
+if you would rather be explicit:
+
+```
+ALLOWED_ORIGINS=https://you.github.io
+```
+
 ### Just a Node process
 
 ```bash
@@ -129,6 +180,7 @@ Every setting is optional.
 | `DATA_DIR` | `./data` | SQLite database, videos, generated VAPID keys |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Web Push identity — `npm run keys` |
 | `VAPID_SUBJECT` | `mailto:hello@groups.app` | Contact address sent to push services |
+| `ALLOWED_ORIGINS` | any | Comma-separated web origins allowed to call the API |
 | `INSECURE_COOKIES` | unset | Set to `1` for plain-HTTP local dev |
 | `LOG_REQUESTS` | unset | Set to `1` for a request log |
 
@@ -187,6 +239,7 @@ no and it disappears again. That rule lives in one function on the server
 | **Playback** | Byte-range requests, because Safari will not play a video without them. The next clip preloads while the current one plays. |
 | **Stitching** | If clips share a codec and size (a group of iPhones) they're stream-copied — instant and lossless. Otherwise each is normalised to 1080×1920/30fps/AAC first. The result is length-checked, because `ffmpeg -c copy` will exit 0 having quietly dropped a mismatched clip. |
 | **Saving to Photos** | The Web Share API with a file, which puts "Save Video" in the iOS share sheet. Falls back to a download elsewhere. |
+| **Split hosting** | Nothing is bound to an origin or a path: the app resolves its server at boot (invite link → remembered → bundled `server.json` → this origin), media arrives as signed URLs, and the event stream uses a ticket. That is what lets GitHub Pages host the front end. |
 
 ---
 
@@ -209,6 +262,7 @@ GET    /api/groups/:id/memories        the archive
 GET    /api/groups/:id/memories/:day   one memory (locked until it opens)
 POST   /api/groups/:id/memories/:day/reel      build the stitched MP4
 GET    /api/clips/:id/video            range-enabled stream
+POST   /api/stream/ticket              short-lived ticket for EventSource
 GET    /api/stream                     Server-Sent Events
 GET    /api/health
 ```

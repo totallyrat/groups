@@ -5,27 +5,34 @@ const VERSION = '__ASSET_VERSION__';
 const SHELL = `groups-shell-${VERSION}`;
 const MEDIA = 'groups-media-v1';
 
+// The app may be served from a subpath (GitHub Pages puts it at /<repo>/), so
+// everything here is resolved against the worker's own scope, never the origin.
+const BASE = new URL('./', self.registration?.scope || self.location.href);
+const at = (p) => new URL(p, BASE).toString();
+
 const SHELL_FILES = [
-  '/',
-  '/css/theme.css',
-  '/css/app.css',
-  '/js/app.js',
-  '/js/api.js',
-  '/js/store.js',
-  '/js/ui.js',
-  '/js/router.js',
-  '/js/views/home.js',
-  '/js/views/hangout.js',
-  '/js/views/camera.js',
-  '/js/views/reel.js',
-  '/js/views/archive.js',
-  '/js/views/settings.js',
-  '/js/views/onboarding.js',
-  '/manifest.webmanifest',
-  '/icons/mark.svg',
-  '/icons/apple-touch-icon.png',
-  '/icons/icon-192.png',
-];
+  './',
+  'css/theme.css',
+  'css/app.css',
+  'js/app.js',
+  'js/api.js',
+  'js/config.js',
+  'js/store.js',
+  'js/ui.js',
+  'js/router.js',
+  'js/views/home.js',
+  'js/views/hangout.js',
+  'js/views/camera.js',
+  'js/views/reel.js',
+  'js/views/archive.js',
+  'js/views/settings.js',
+  'js/views/onboarding.js',
+  'js/views/connect.js',
+  'manifest.webmanifest',
+  'icons/mark.svg',
+  'icons/apple-touch-icon.png',
+  'icons/icon-192.png',
+].map(at);
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -46,9 +53,25 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+/* The API may be on another origin entirely, and a notification can be tapped
+   with no page open to ask — so the page tells us, and we keep it in a cache. */
+const API_BASE_KEY = at('__api-base');
+
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'skip-waiting') self.skipWaiting();
+  if (event.data?.type === 'api-base' && event.data.value) {
+    event.waitUntil(caches.open(SHELL).then((c) =>
+      c.put(API_BASE_KEY, new Response(String(event.data.value)))));
+  }
 });
+
+async function apiBase() {
+  try {
+    const hit = await caches.match(API_BASE_KEY);
+    if (hit) return (await hit.text()).replace(/\/+$/, '');
+  } catch { /* fall through */ }
+  return at('.').replace(/\/+$/, '');
+}
 
 /* ---------------------------------------------------------------- fetch -- */
 
@@ -57,7 +80,6 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  if (url.origin !== location.origin) return;
 
   // Video and range requests go straight to the network — the browser's own
   // media cache handles them far better than we can.
@@ -69,15 +91,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // The API is always live; the shell is the fallback when the network is not.
-  if (url.pathname.startsWith('/api/')) return;
+  // The API is always live — and it may well be on another origin entirely.
+  if (url.pathname.includes('/api/') || url.origin !== location.origin) return;
 
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
         return await fetch(request);
       } catch {
-        return (await caches.match('/')) || Response.error();
+        return (await caches.match(at('./'))) || Response.error();
       }
     })());
     return;
@@ -118,9 +140,9 @@ self.addEventListener('push', (event) => {
     body: payload.body || '',
     tag: payload.tag || 'groups',
     renotify: true,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    data: { url: payload.url || '/', ...(payload.data || {}) },
+    icon: at('icons/icon-192.png'),
+    badge: at('icons/icon-192.png'),
+    data: { url: payload.url || './', ...(payload.data || {}) },
     actions: (payload.actions || []).slice(0, 2),
     vibrate: [12, 60, 12],
   };
@@ -131,7 +153,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  let target = data.url || '/';
+  let target = data.url || './';
 
   // Answering a hangout straight from the lock screen.
   if (event.action === 'yes' && data.hangoutId) {
@@ -148,7 +170,8 @@ self.addEventListener('notificationclick', (event) => {
 
 async function answerHangout(hangoutId, answer, target) {
   try {
-    await fetch(`/api/hangouts/${hangoutId}/respond`, {
+    const base = await apiBase();
+    await fetch(`${base}/api/hangouts/${hangoutId}/respond`, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
@@ -159,9 +182,9 @@ async function answerHangout(hangoutId, answer, target) {
   if (answer === 'yes') {
     await self.registration.showNotification("You're in 🎉", {
       body: 'Open Groups to see where they are.',
-      icon: '/icons/icon-192.png',
+      icon: at('icons/icon-192.png'),
       tag: `answered-${hangoutId}`,
-      data: { url: target || '/' },
+      data: { url: target || './' },
     });
   }
   if (target) await openApp(target);

@@ -3,6 +3,7 @@
 import { $, el, clear, toast, toastBusy, haptic, fmtClock, fmtDay, fmtDuration } from '../ui.js';
 import { api } from '../api.js';
 import { state, loadGroup } from '../store.js';
+import { mediaUrl } from '../config.js';
 import { show, back } from '../router.js';
 
 const REACTIONS = ['❤️', '😂', '🔥', '😮', '🥲'];
@@ -81,7 +82,7 @@ function playCurrent() {
   if (!clip) return finish();
 
   const video = $('#reel-video');
-  video.src = clip.url;
+  video.src = mediaUrl(clip.url);
   video.currentTime = 0;
   video.muted = $('#reel-mute').dataset.muted === '1';
   video.play().catch(() => {
@@ -111,7 +112,8 @@ function preloadNext() {
     });
     $('#screen-reel').append(preloader);
   }
-  if (preloader.src !== next.url) preloader.src = next.url;
+  const nextUrl = mediaUrl(next.url);
+  if (preloader.src !== nextUrl) preloader.src = nextUrl;
 }
 
 function step(delta) {
@@ -220,7 +222,7 @@ async function saveWholeDay() {
       }
       busy.remove();
       if (result.status === 'ready') {
-        await saveVideo(result.url, name, 'the whole day');
+        await saveVideo(mediaUrl(result.url), name, 'the whole day');
         return;
       }
     } catch {
@@ -232,7 +234,7 @@ async function saveWholeDay() {
   toast(`Saving ${memory.clips.length} clips one by one`, '', 4000);
   for (const [i, clip] of memory.clips.entries()) {
     await saveVideo(
-      `${clip.url}?download=1`,
+      `${mediaUrl(clip.url)}&download=1`,
       `${memory.day}-${String(i + 1).padStart(2, '0')}-${clip.user.name.replace(/\W+/g, '')}.mp4`,
       `clip ${i + 1}`,
     );
@@ -306,7 +308,7 @@ export function initReel() {
     const clip = memory?.clips[index];
     if (!clip) return;
     saveVideo(
-      `${clip.url}?download=1`,
+      `${mediaUrl(clip.url)}&download=1`,
       `${memory.day}-${clip.user.name.replace(/\W+/g, '')}.mp4`,
       'this clip',
     );

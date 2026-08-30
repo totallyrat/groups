@@ -4,6 +4,7 @@ import { $, el, clear, avatar, toast, fmtCountdown, fmtDay, fmtClock, timeAgo, i
   from '../ui.js';
 import { api } from '../api.js';
 import { state, loadGroup } from '../store.js';
+import { mediaUrl } from '../config.js';
 import { openHangoutSheet, respondToHangout } from './hangout.js';
 import { openReel } from './reel.js';
 
@@ -233,7 +234,7 @@ function dropCard(drop, home, accent) {
       drop.poster
         ? el('div', {
             class: 'poster',
-            style: { width: '58px', backgroundImage: `url(${drop.poster})` },
+            style: { width: '58px', backgroundImage: `url(${mediaUrl(drop.poster)})` },
           })
         : el('div', {
             class: 'poster',

@@ -8,6 +8,7 @@ import { createBus } from './bus.mjs';
 import { createApi } from './api.mjs';
 import { MediaStore, serveFile } from './media.mjs';
 import { Pusher, generateVapidKeys } from './push.mjs';
+import { createSigner, loadSecret } from './sign.mjs';
 import { HttpError, json, parseCookies, unlockAt, memoryDay, addDays } from './util.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,12 @@ const config = {
   secureCookies: process.env.INSECURE_COOKIES !== '1',
   version: '1.0.0',
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:hello@groups.app',
+  // Which web origins may call this API. Empty = any, which is safe here
+  // because cross-origin requests never carry the session cookie: they
+  // authenticate with a bearer token or a signed URL, neither of which a
+  // hostile page can read.
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || '')
+    .split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean),
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });
@@ -52,7 +59,8 @@ const db = openDb(path.join(config.dataDir, 'groups.db'));
 const media = new MediaStore(path.join(config.dataDir, 'media'));
 const bus = createBus();
 const pusher = new Pusher({ ...vapid, subject: config.vapidSubject });
-const api = createApi({ db, media, pusher, bus, config });
+const signer = createSigner(loadSecret(config.dataDir));
+const api = createApi({ db, media, pusher, bus, config, signer });
 
 /* ----------------------------------------------------------- static files -- */
 
@@ -100,9 +108,13 @@ async function serveStatic(req, res, pathname) {
 
   let stat = await fsp.stat(file).catch(() => null);
   if (!stat || stat.isDirectory()) {
-    // Single-page app: unknown paths fall back to the shell.
     if (path.extname(rel)) throw new HttpError(404, 'Not found', 'not_found');
-    return serveShell(req, res);
+    // Single-page app: send unknown paths back to the root rather than serving
+    // the shell in place. The shell's asset URLs are relative — so it can also
+    // be hosted from a subpath on a CDN — and would not resolve from here.
+    const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.writeHead(302, { location: `/${query}`, 'cache-control': 'no-store' });
+    return res.end();
   }
 
   // The shell always goes through the template so its asset URLs are versioned.
@@ -147,6 +159,27 @@ function securityHeaders() {
   };
 }
 
+const ALLOWED_HEADERS =
+  'authorization, content-type, range, last-event-id, ' +
+  'x-shot-at, x-duration, x-caption, x-width, x-height';
+
+/**
+ * Lets the app live somewhere else — GitHub Pages, say — while this server
+ * keeps the data. Credentials are deliberately NOT allowed across origins: the
+ * session cookie stays same-origin, and everything else proves itself with a
+ * bearer token or a signed URL.
+ */
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin) return;
+  const clean = origin.replace(/\/+$/, '');
+  if (config.allowedOrigins.length && !config.allowedOrigins.includes(clean)) return;
+  res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('vary', 'Origin');
+  res.setHeader('access-control-expose-headers',
+    'content-range, accept-ranges, content-disposition, content-length');
+}
+
 /* -------------------------------------------------------------- the server -- */
 
 const server = http.createServer(async (req, res) => {
@@ -156,8 +189,15 @@ const server = http.createServer(async (req, res) => {
     pathname = new URL(req.url, 'http://localhost').pathname;
     req.cookies = parseCookies(req.headers.cookie);
 
+    applyCors(req, res);
+
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, { allow: 'GET,POST,PATCH,DELETE,HEAD,OPTIONS' });
+      res.writeHead(204, {
+        allow: 'GET,POST,PATCH,DELETE,HEAD,OPTIONS',
+        'access-control-allow-methods': 'GET,POST,PATCH,DELETE,HEAD,OPTIONS',
+        'access-control-allow-headers': ALLOWED_HEADERS,
+        'access-control-max-age': '86400',
+      });
       return res.end();
     }
 

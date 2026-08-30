@@ -1,0 +1,4 @@
+{
+  "_comment": "Set apiBase to your Groups server URL to point every install at it by default. Leave it empty and the app asks on first launch. The GitHub Pages workflow fills this in from the GROUPS_API_BASE repository variable.",
+  "apiBase": ""
+}

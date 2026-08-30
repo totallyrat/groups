@@ -231,6 +231,53 @@ async function main() {
   eq('delete your own clip works',
     (await call('DELETE', `/api/clips/${clipId}`, { token: bo })).status, 200);
 
+  console.log('\n\x1b[1mhosting the app elsewhere\x1b[0m');
+  {
+    // GitHub Pages can serve the app but not the API, so the two end up on
+    // different origins. Everything below is what makes that work.
+    // The earlier clip was deleted, so put two fresh ones in the open day.
+    for (const seed of [7, 8]) {
+      await call('POST', `/api/groups/${gid}/clips`, {
+        token: ada, raw: true, body: fakeMp4(seed),
+        headers: { 'content-type': 'video/mp4', 'x-shot-at': String(yesterdayShot + seed), 'x-duration': '3' },
+      });
+    }
+    const mem = await call('GET', `/api/groups/${gid}/memories/${openDay}`, { token: ada });
+    const signed = mem.body.clips[0]?.url;
+    check('clip URLs come back signed', /\?t=[^&]+$/.test(signed || ''), signed);
+
+    const bare = await fetch(BASE + signed);   // no cookie, no bearer
+    eq('a signed URL plays with no credentials at all', bare.status, 200);
+
+    const stolen = `/api/clips/${mem.body.clips[1].id}/video${signed.slice(signed.indexOf('?'))}`;
+    eq('a signature for one clip does not unlock another',
+      (await fetch(BASE + stolen)).status, 401);
+    eq('a tampered signature is refused',
+      (await fetch(`${BASE + signed.slice(0, -2)}xx`)).status, 401);
+
+    const preflight = await fetch(`${BASE}/api/me`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://someone.github.io', 'access-control-request-method': 'GET' },
+    });
+    eq('CORS preflight is answered', preflight.status, 204);
+    eq('with the calling origin allowed',
+      preflight.headers.get('access-control-allow-origin'), 'https://someone.github.io');
+    check('and the upload headers permitted',
+      (preflight.headers.get('access-control-allow-headers') || '').includes('x-shot-at'),
+      preflight.headers.get('access-control-allow-headers'));
+    check('cookies are never allowed across origins',
+      preflight.headers.get('access-control-allow-credentials') === null,
+      preflight.headers.get('access-control-allow-credentials'));
+
+    const ticket = await call('POST', '/api/stream/ticket', { token: bo });
+    check('a stream ticket is issued', typeof ticket.body.ticket === 'string');
+    const streamed = await fetch(`${BASE}/api/stream?ticket=${encodeURIComponent(ticket.body.ticket)}`);
+    eq('and opens the event stream without a header or cookie', streamed.status, 200);
+    streamed.body.cancel();
+    eq('a junk ticket does not',
+      (await fetch(`${BASE}/api/stream?ticket=nope.1.zz`)).status, 401);
+  }
+
   console.log('\n\x1b[1mrealtime\x1b[0m');
   const streamed = await new Promise(async (resolve) => {
     const controller = new AbortController();
@@ -291,8 +338,17 @@ async function main() {
     check(`serves ${file}`, r.ok && (r.headers.get('content-type') || '').includes(type),
       `${r.status} ${r.headers.get('content-type')}`);
   }
-  const spa = await fetch(`${BASE}/some/deep/link`);
-  eq('unknown routes fall back to the app shell', spa.status, 200);
+  const spa = await fetch(`${BASE}/some/deep/link?join=ABC123`, { redirect: 'manual' });
+  eq('unknown routes redirect to the app root', spa.status, 302);
+  eq('keeping the query string, so invite links survive',
+    spa.headers.get('location'), '/?join=ABC123');
+  eq('and following it lands on the app',
+    (await fetch(`${BASE}/some/deep/link`)).status, 200);
+
+  const shell = await (await fetch(`${BASE}/`)).text();
+  check('the shell uses relative asset URLs, so a CDN subpath works',
+    shell.includes('href="css/theme.css') && shell.includes('src="js/app.js'),
+    shell.match(/(?:href|src)="[^"]*app\.js[^"]*"/)?.[0]);
   const traversal = await fetch(`${BASE}/../package.json`);
   check('path traversal is blocked', traversal.status === 404 || traversal.status === 403, String(traversal.status));
 

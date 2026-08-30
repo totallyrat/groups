@@ -23,7 +23,7 @@ const VIBES = {
   out:    { label: 'Go out',     emoji: '🌃' },
 };
 
-export function createApi({ db, media, pusher, bus, config }) {
+export function createApi({ db, media, pusher, bus, config, signer }) {
   /* ------------------------------------------------------------ queries -- */
 
   const q = {
@@ -223,7 +223,12 @@ export function createApi({ db, media, pusher, bus, config }) {
   const isUnlocked = (group, day, at = now()) =>
     at >= unlockAt(day, group.tz, group.unlock_hour);
 
-  function clipView(c, { includeUrls }) {
+  /** A media URL that proves who it is for, so <video> and downloads work
+      even when the app is served from another origin. */
+  const signedClip = (clipId, kind, viewerId) =>
+    `/api/clips/${clipId}/${kind}?t=${signer.sign(viewerId, `clip:${clipId}`)}`;
+
+  function clipView(c, { includeUrls, viewerId }) {
     return {
       id: c.id,
       user: { id: c.user_id, name: c.name, emoji: c.emoji, hue: c.hue },
@@ -234,8 +239,8 @@ export function createApi({ db, media, pusher, bus, config }) {
       height: c.height,
       size: c.size,
       mime: c.mime,
-      poster: c.has_poster ? `/api/clips/${c.id}/poster` : null,
-      url: includeUrls ? `/api/clips/${c.id}/video` : null,
+      poster: c.has_poster ? signedClip(c.id, 'poster', viewerId) : null,
+      url: includeUrls ? signedClip(c.id, 'video', viewerId) : null,
     };
   }
 
@@ -479,7 +484,7 @@ export function createApi({ db, media, pusher, bus, config }) {
         // many clips — but never the contents.
         contributors: q.contributorsOf.all(group.id, clock.day),
         clips: unlocked
-          ? q.clipsOfDay.all(group.id, clock.day).map((c) => clipView(c, { includeUrls: true }))
+          ? q.clipsOfDay.all(group.id, clock.day).map((c) => clipView(c, { includeUrls: true, viewerId: user.id }))
           : [],
         watched: seen.has(clock.day),
       },
@@ -491,7 +496,7 @@ export function createApi({ db, media, pusher, bus, config }) {
             openedAt: unlockAt(lastDay, group.tz, group.unlock_hour),
             poster: (() => {
               const row = q.firstPosterOf.get(group.id, lastDay);
-              return row ? `/api/clips/${row.id}/poster` : null;
+              return row ? signedClip(row.id, 'poster', user.id) : null;
             })(),
             watched: seen.has(lastDay),
           }
@@ -684,8 +689,19 @@ export function createApi({ db, media, pusher, bus, config }) {
     json(res, 200, { ok: true });
   });
 
+  /** Session first, then a signed link — one of the two must name a user. */
+  function mediaUser(req, scope) {
+    const session = authenticate(req);
+    if (session) return session;
+    const token = new URL(req.url, 'http://x').searchParams.get('t');
+    const userId = token ? signer.verify(token, scope) : null;
+    const user = userId ? q.userById.get(userId) : null;
+    if (!user) throw unauthorized();
+    return user;
+  }
+
   route('GET', '/api/clips/:cid/video', async (req, res, params) => {
-    const user = requireUser(req);
+    const user = mediaUser(req, `clip:${params.cid}`);
     const clip = q.clipById.get(params.cid);
     if (!clip) throw notFound('Clip not found');
     const group = requireMember(clip.group_id, user.id);
@@ -701,7 +717,7 @@ export function createApi({ db, media, pusher, bus, config }) {
   });
 
   route('GET', '/api/clips/:cid/poster', async (req, res, params) => {
-    const user = requireUser(req);
+    const user = mediaUser(req, `clip:${params.cid}`);
     const clip = q.clipById.get(params.cid);
     if (!clip || !clip.has_poster) throw notFound('No poster');
     const group = requireMember(clip.group_id, user.id);
@@ -760,7 +776,7 @@ export function createApi({ db, media, pusher, bus, config }) {
         unlocked,
         opensAt: unlockAt(row.day, group.tz, group.unlock_hour),
         watched: seen.has(row.day),
-        poster: first ? `/api/clips/${first.id}/poster` : null,
+        poster: first ? signedClip(first.id, 'poster', user.id) : null,
       };
     });
     json(res, 200, { days });
@@ -800,13 +816,16 @@ export function createApi({ db, media, pusher, bus, config }) {
       counts,
       totalSeconds: clips.reduce((s, c) => s + (c.duration || 0), 0),
       clips: clips.map((c) => ({
-        ...clipView(c, { includeUrls: true }),
+        ...clipView(c, { includeUrls: true, viewerId: user.id }),
         reactions: byClip.get(c.id) || [],
       })),
       reel: {
         available: await hasFfmpeg(),
         status: reel?.status || 'stale',
-        url: reel?.status === 'ready' ? `/api/groups/${group.id}/memories/${day}/reel.mp4` : null,
+        url: reel?.status === 'ready'
+          ? `/api/groups/${group.id}/memories/${day}/reel.mp4`
+            + `?t=${signer.sign(user.id, `reel:${group.id}:${day}`)}`
+          : null,
         size: reel?.size || 0,
       },
     });
@@ -834,7 +853,8 @@ export function createApi({ db, media, pusher, bus, config }) {
     if (existing?.status === 'ready' && existing.clip_ids === ids) {
       json(res, 200, {
         status: 'ready',
-        url: `/api/groups/${group.id}/memories/${params.day}/reel.mp4`,
+        url: `/api/groups/${group.id}/memories/${params.day}/reel.mp4`
+          + `?t=${signer.sign(user.id, `reel:${group.id}:${params.day}`)}`,
         size: existing.size,
       });
       return;
@@ -844,7 +864,7 @@ export function createApi({ db, media, pusher, bus, config }) {
   });
 
   route('GET', '/api/groups/:gid/memories/:day/reel.mp4', async (req, res, params) => {
-    const user = requireUser(req);
+    const user = mediaUser(req, `reel:${params.gid}:${params.day}`);
     const group = requireMember(params.gid, user.id);
     if (!isUnlocked(group, params.day)) throw forbidden('Not open yet');
     const reel = q.reel.get(group.id, params.day);
@@ -886,9 +906,16 @@ export function createApi({ db, media, pusher, bus, config }) {
 
   /* realtime */
 
-  route('GET', '/api/stream', async (req, res) => {
+  route('POST', '/api/stream/ticket', async (req, res) => {
     const user = requireUser(req);
+    json(res, 200, { ticket: signer.sign(user.id, 'stream', 120) });
+  });
+
+  route('GET', '/api/stream', async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    const ticket = url.searchParams.get('ticket');
+    const viaTicket = ticket ? q.userById.get(signer.verify(ticket, 'stream') || '') : null;
+    const user = viaTicket || requireUser(req);
     const since = Number(req.headers['last-event-id'] || url.searchParams.get('since') || 0);
 
     res.writeHead(200, {

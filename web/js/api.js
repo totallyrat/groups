@@ -1,5 +1,7 @@
 /* Thin API client. Holds the session token and knows how to survive being offline. */
 
+import { apiUrl } from './config.js';
+
 const TOKEN_KEY = 'groups.token';
 
 export const auth = {
@@ -26,7 +28,7 @@ async function request(method, path, { body, headers = {}, raw, signal, onProgre
   // XHR is the only way to get upload progress, and clips are big.
   if (onProgress && raw) return uploadWithProgress(method, path, body, headers, onProgress, signal);
 
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method,
     credentials: 'same-origin',
     signal,
@@ -49,7 +51,8 @@ async function request(method, path, { body, headers = {}, raw, signal, onProgre
 function uploadWithProgress(method, path, body, headers, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open(method, path);
+    xhr.open(method, apiUrl(path));
+    // Only meaningful same-origin; cross-origin auth is the bearer token.
     xhr.withCredentials = true;
     if (auth.token) xhr.setRequestHeader('authorization', `Bearer ${auth.token}`);
     for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
@@ -126,6 +129,9 @@ export const api = {
   react: (clipId, emoji, remove = false) =>
     request('POST', `/api/clips/${clipId}/react`, { body: { emoji, remove } }),
   deleteClip: (clipId) => request('DELETE', `/api/clips/${clipId}`),
+
+  /* realtime */
+  streamTicket: () => request('POST', '/api/stream/ticket'),
 
   /* push */
   subscribePush: (subscription) => request('POST', '/api/push/subscribe', { body: { subscription } }),

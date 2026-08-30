@@ -1,0 +1,74 @@
+# Publishes the Groups app (the web/ folder) to GitHub Pages.
+#
+# Pages is a static host, so this puts the front end online — installable to an
+# iPhone Home Screen — while your group's data stays on whatever server you run.
+# Set a GROUPS_API_BASE repository variable to point every install at it by
+# default; otherwise the app asks on first launch.
+name: Publish app to Pages
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+    paths:
+      - "web/**"
+      - "scripts/make-icons.mjs"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; let a newer commit win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Draw the icons and iOS splash screens
+        run: node scripts/make-icons.mjs --force
+
+      - name: Point the app at the group's server
+        if: vars.GROUPS_API_BASE != ''
+        run: |
+          printf '{ "apiBase": "%s" }\n' "${{ vars.GROUPS_API_BASE }}" > web/server.json
+          echo "Default server: ${{ vars.GROUPS_API_BASE }}"
+
+      - name: Stop Pages from running the app through Jekyll
+        run: touch web/.nojekyll
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Where it went
+        run: |
+          echo "### Groups is live" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**${{ steps.deploy.outputs.page_url }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Open that on your iPhone in Safari, then Share -> Add to Home Screen." >> $GITHUB_STEP_SUMMARY

@@ -6,7 +6,9 @@ import {
   state, subscribe, loadMe, loadGroup, connectLive, onServerEvent,
   rememberGroup, lastGroup, flushQueue,
 } from './store.js';
+import { config, resolveServer } from './config.js';
 import { initRouter, show, reset, current } from './router.js';
+import { openConnect } from './views/connect.js';
 import { initOnboarding, joinGroup } from './views/onboarding.js';
 import { renderHome } from './views/home.js';
 import { openHangoutSheet } from './views/hangout.js';
@@ -20,7 +22,15 @@ import { openSettings, openGroupSwitcher, isStandalone, enablePush } from './vie
 async function registerWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    // Relative, because on GitHub Pages the app lives at /<repo>/, not at the root.
+    const registration = await navigator.serviceWorker.register('sw.js', { scope: './' });
+    // The worker answers hangout notifications on its own and needs to know
+    // which server to talk to.
+    const tellWorker = () => registration.active?.postMessage(
+      { type: 'api-base', value: new URL(config.apiBase || '.', location.href).toString() },
+    );
+    tellWorker();
+    navigator.serviceWorker.ready.then(tellWorker).catch(() => {});
     registration.addEventListener('updatefound', () => {
       const worker = registration.installing;
       worker?.addEventListener('statechange', () => {
@@ -145,6 +155,15 @@ function renderUploads() {
 
 async function boot() {
   initRouter();
+
+  // Find the server before anything else: without one there is nothing to show.
+  await resolveServer();
+  if (!config.connected) {
+    registerWorker();
+    openConnect({ onConnected: () => location.reload() });
+    return;
+  }
+
   initOnboarding();
   initCamera();
   initReel();

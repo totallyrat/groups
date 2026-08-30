@@ -68,7 +68,31 @@ async function createAccount() {
   }
 }
 
+/**
+ * Someone who arrived on an invite link should land straight in the group,
+ * not on the "create or join" screen with a code they no longer have.
+ */
+async function afterSignUp() {
+  let pending = null;
+  try {
+    pending = sessionStorage.getItem('groups.pendingJoin');
+    sessionStorage.removeItem('groups.pendingJoin');
+  } catch { /* private mode */ }
+
+  if (pending) {
+    await joinGroup(pending);
+    if (state.groupId) return;
+  }
+  reset('setup');
+}
+
 function showRecoveryPhrase(phrase) {
+  let moved = false;
+  const go = () => {
+    if (moved) return;
+    moved = true;
+    afterSignUp();
+  };
   openSheet(frag([
     el('h3', { class: 't-title' }, [`Hey ${state.me.name} ${state.me.emoji}`]),
     el('p', { class: 't-meta', style: { marginTop: '2px' } }, [
@@ -77,9 +101,9 @@ function showRecoveryPhrase(phrase) {
     el('div', { class: 'phrase-box', style: { margin: 'var(--s5) 0' } }, [phrase.replace(/-/g, ' ')]),
     el('button', {
       class: 'btn btn-primary btn-block',
-      onclick: () => { closeSheet(); reset('setup'); },
+      onclick: () => { closeSheet(); go(); },
     }, ['Got it']),
-  ]), { onClose: () => reset('setup') });
+  ]), { onClose: go });
 }
 
 function openRestoreSheet() {
@@ -179,7 +203,7 @@ export async function joinGroup(rawCode) {
   const code = String(rawCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length < 4) return toast('That code looks short');
   const button = $('#group-join');
-  button.disabled = true;
+  if (button) button.disabled = true;
   try {
     const { group } = await api.joinGroup(code);
     await loadMe();
@@ -193,6 +217,6 @@ export async function joinGroup(rawCode) {
   } catch (err) {
     toast(err.message || 'Could not join', 'warn');
   } finally {
-    button.disabled = false;
+    if (button) button.disabled = false;
   }
 }

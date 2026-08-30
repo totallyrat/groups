@@ -1,6 +1,7 @@
 /* App state, live updates, and the offline upload queue. */
 
 import { api, auth, ApiError } from './api.js';
+import { apiUrl, config } from './config.js';
 
 /* ------------------------------------------------------------------ state -- */
 
@@ -55,6 +56,9 @@ export async function loadMe() {
     push: data.push,
     capabilities: data.capabilities || {},
   });
+  // Whenever we have an identity we want the live stream, including right
+  // after signing up — otherwise a new member sees nothing until they reload.
+  connectLive();
   return data;
 }
 
@@ -82,15 +86,28 @@ export function onServerEvent(fn) {
   return () => eventHandlers.delete(fn);
 }
 
-export function connectLive() {
-  if (!auth.token || source) return;
-  // EventSource cannot send an Authorization header — the session cookie set at
-  // sign-in carries it instead.
+let connecting = false;
+
+export async function connectLive() {
+  if (!auth.token || source || connecting || !config.connected) return;
+  connecting = true;
+
+  // EventSource can send neither an Authorization header nor — once the app is
+  // on another origin — the session cookie. So we trade the token for a
+  // short-lived ticket and put that in the query string.
+  let query = `since=${state.lastSeq}`;
   try {
-    source = new EventSource(`/api/stream?since=${state.lastSeq}`);
+    const { ticket } = await api.streamTicket();
+    if (ticket) query += `&ticket=${encodeURIComponent(ticket)}`;
+  } catch { /* same-origin cookie may still carry it */ }
+
+  try {
+    source = new EventSource(apiUrl(`/api/stream?${query}`));
   } catch {
+    connecting = false;
     return;
   }
+  connecting = false;
 
   source.onmessage = handleEvent;
   for (const type of [

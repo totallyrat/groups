@@ -5,6 +5,7 @@ import {
   avatar, haptic, icon, ICONS,
 } from '../ui.js';
 import { api, auth } from '../api.js';
+import { config } from '../config.js';
 import { state, loadMe, loadGroup, rememberGroup, patch } from '../store.js';
 import { show, reset } from '../router.js';
 
@@ -257,7 +258,12 @@ function openProfileSheet() {
 }
 
 export function openInviteSheet(group) {
-  const link = `${location.origin}/?join=${group.inviteCode}`;
+  // The link carries the server as well as the code, so a friend opening it
+  // from a static host (GitHub Pages) never has to know an address exists.
+  const url = new URL('.', location.href);
+  url.searchParams.set('join', group.inviteCode);
+  if (!config.local) url.searchParams.set('s', config.apiBase);
+  const link = url.toString();
   const codeBox = el('div', { class: 'code-box' }, [group.inviteCode]);
 
   openSheet(frag([
